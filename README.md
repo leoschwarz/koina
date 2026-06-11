@@ -98,15 +98,21 @@ For examples of how to access models using Python, you can check out [our OpenAP
 ## Hosting your own server
 
 ### Dependencies
-Koina depends on [docker](https://docs.docker.com/engine/install/) and [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/overview.html).
-It has only been tested on Linux (Debian/Ubuntu) with Nvidia GPUs.
+Koina depends on [docker](https://docs.docker.com/engine/install/).
+For GPU-accelerated inference it additionally requires [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/overview.html).
+CPU-only mode (no GPU required) is also supported — see below.
 
 You can find an ansible script that installs all dependencies [here](docs/server/).
 
 ### How to run it
-After installing the dependencies, you can pull the docker image and run it. If you have multiple GPUs installed on your server, you can choose which one is used by modifying `--gpus '"device=0"'`. The time it takes to pull the image depends on your connection speed. The first time, it might take up to 5 min. Due to the layered design of Docker images, updating to the latest version will likely (depending on the amount of changes) only take seconds. When the server is first started, Model files are downloaded from Zenodo. The duration of this also depends on connection speed but might take ~10 min as well. Once models are downloaded, the server startup takes ~2 minutes.
+After installing the dependencies, you can pull the docker image and run it. The time it takes to pull the image depends on your connection speed. The first time, it might take up to 5 min. Due to the layered design of Docker images, updating to the latest version will likely (depending on the amount of changes) only take seconds. When the server is first started, model files are downloaded from Zenodo. The duration of this also depends on connection speed but might take ~10 min as well. Once models are downloaded, the server startup takes ~2 minutes.
 
 When using this docker image, you need to accept the terms in the [NVIDIA Deep Learning Container License](NVIDIA_Deep_Learning_Container_License.pdf)
+
+#### With a GPU (recommended for production)
+
+If you have multiple GPUs installed on your server, you can choose which one is used by modifying `--gpus '"device=0"'`.
+
 ```bash
 docker run \
     --gpus '"device=0"' \
@@ -117,6 +123,31 @@ docker run \
     --restart unless-stopped \
     ghcr.io/wilhelm-lab/koina:latest
 ```
+
+#### Without a GPU (CPU-only mode)
+
+The same image runs on CPU — simply omit `--gpus`. The server detects the absence of a
+GPU automatically (you can also force it with `-e KOINA_FORCE_CPU=1`). CPU inference is
+slower, and to reduce RAM usage and startup time you should set `MODEL_PATTERN` to load
+only the models you need rather than the default `MODEL_PATTERN=*` (which loads everything).
+
+```bash
+docker run \
+    --shm-size 8G \
+    --name koina \
+    -e MODEL_PATTERN=Chronologer_RT \
+    -p 8500-8502:8500-8502 \
+    -d \
+    --restart unless-stopped \
+    ghcr.io/wilhelm-lab/koina:latest
+```
+
+**Not all models run on CPU.** Models that load cleanly on CPU include the PyTorch models
+(e.g. Chronologer, AlphaPept), the ms2pip (XGBoost) models, DeepLC / IM2Deep, and all
+pre/post-processing steps. The **Prosit** intensity and iRT models (including Prosit-XL and
+pfly) currently **require a GPU** — their TensorFlow graphs use the cuDNN-only `CudnnRNN`
+op, which has no CPU kernel. On a CPU host these models fail to load; the server stays
+healthy and continues serving the models that did load (it does not crash or restart-loop).
 
 If you want to stay up to date with the latest version of Koina we suggest you also deploy containrrr/watchtower.
 

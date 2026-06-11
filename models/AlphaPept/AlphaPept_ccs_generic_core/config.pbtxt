@@ -38,3 +38,9 @@ model_repository_agents
     }
   ]
 }
+
+instance_group [
+    {
+      kind: KIND_AUTO
+    }
+]

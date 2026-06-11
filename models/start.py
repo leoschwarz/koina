@@ -14,6 +14,27 @@ import zipfile
 import subprocess
 
 
+def has_gpu() -> bool:
+    """Return True if a GPU is available and CPU mode is not explicitly forced."""
+    if os.environ.get("KOINA_FORCE_CPU", "").strip().lower() in ("1", "true", "yes"):
+        print("KOINA_FORCE_CPU is set — running in CPU-only mode")
+        return False
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "-L"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return True
+        print("nvidia-smi found no devices — running in CPU-only mode")
+        return False
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        print("nvidia-smi unavailable — running in CPU-only mode")
+        return False
+
+
 def find_model_dependency_loc(loc: PosixPath) -> Set[PosixPath]:
     dependencies = set()
     with open(f"{loc}/config.pbtxt") as f:
@@ -139,6 +160,8 @@ if __name__ == "__main__":
         recursive_dependency_symlink("*")
     find_and_download()
 
+    gpu_available = has_gpu()
+
     triton_cmd = [
         "tritonserver",
         "--model-repository=/models/repo",
@@ -147,18 +170,25 @@ if __name__ == "__main__":
         "--allow-http=true",
         "--allow-metrics=true",
         "--allow-cpu-metrics=true",
-        "--allow-gpu-metrics=true",
+        f"--allow-gpu-metrics={'true' if gpu_available else 'false'}",
         "--metrics-port=8502",
         "--log-info=true",
         "--log-warning=true",
         "--log-error=true",
         "--rate-limit",
         "execution_count",
-        "--cuda-memory-pool-byte-size",
-        "0:536870912",
         "--grpc-infer-response-compression-level",
         "high",
     ]
+
+    if gpu_available:
+        triton_cmd += ["--cuda-memory-pool-byte-size", "0:536870912"]
+    else:
+        # On CPU some models (e.g. Prosit's cuDNN-based TF cores) cannot load.
+        # Tolerate individual model load failures so the rest keep serving, and
+        # relax readiness so the container is reported healthy even when a subset
+        # of models is unavailable (otherwise the healthcheck never passes).
+        triton_cmd += ["--exit-on-error=false", "--strict-readiness=false"]
 
     usi_proxy = subprocess.Popen(["/models/usi_proxy"])
 

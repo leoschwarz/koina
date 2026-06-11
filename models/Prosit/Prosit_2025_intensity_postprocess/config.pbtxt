@@ -29,3 +29,9 @@ output [
    dims: [174]
  }
 ]
+
+instance_group [
+    {
+      kind: KIND_AUTO
+    }
+]

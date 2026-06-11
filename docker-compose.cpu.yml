@@ -1,0 +1,16 @@
+# CPU-only override for docker-compose.yml.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.cpu.yml up serving
+#
+# This clears the NVIDIA GPU reservation and enables CPU-only mode.
+# Useful for local development and testing on machines without a GPU.
+# End-users running `docker run` directly (without compose) simply omit --gpus.
+services:
+  serving:
+    environment:
+      - KOINA_FORCE_CPU=1
+    deploy:
+      resources:
+        reservations:
+          devices: []
