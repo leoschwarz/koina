@@ -23,6 +23,8 @@ from tensorflow.keras import initializers
 from tensorflow.core.protobuf import saved_model_pb2
 
 SRC, OUT = sys.argv[1], sys.argv[2]
+VOCAB = int(sys.argv[3]) if len(sys.argv) > 3 else 22
+WITH_FRAG = len(sys.argv) > 4 and sys.argv[4] == "frag"  # 2020 TMT adds fragmentation_type_in
 
 
 # --- Prosit attention layers (dlomix architecture) ---
@@ -61,7 +63,7 @@ class AttentionLayer(tf.keras.layers.Layer):
         return K.sum(x * K.expand_dims(a), 1)
 
 
-def build_model(vocab=22, emb_dim=32, seq_len=30, units=(256, 512), frag=6):
+def build_model(vocab=22, emb_dim=32, seq_len=30, units=(256, 512), frag=6, with_frag=False):
     emb = tf.keras.layers.Embedding(vocab, emb_dim, name="sequence_embedding")
     se = tf.keras.Sequential([
         tf.keras.layers.Bidirectional(tf.keras.layers.GRU(units[0], return_sequences=True)),
@@ -87,6 +89,11 @@ def build_model(vocab=22, emb_dim=32, seq_len=30, units=(256, 512), frag=6):
     pep = tf.keras.Input((seq_len,), dtype=tf.int32)
     ce = tf.keras.Input((1,), dtype=tf.float32)
     ch = tf.keras.Input((6,), dtype=tf.float32)
+    if with_frag:
+        fr = tf.keras.Input((1,), dtype=tf.float32)
+        # meta order matches dlomix META_DATA_KEYS: collision_energy, precursor_charge, fragmentation_type
+        out = reg(dec(fus([att(se(emb(pep))), me([ce, ch, fr])])))
+        return tf.keras.Model([pep, ce, ch, fr], out), dict(emb=emb, se=se, att=att, me=me, dec=dec, reg=reg)
     out = reg(dec(fus([att(se(emb(pep))), me([ce, ch])])))
     return tf.keras.Model([pep, ce, ch], out), dict(emb=emb, se=se, att=att, me=me, dec=dec, reg=reg)
 
@@ -104,8 +111,16 @@ def gru_weights(rdr, prefix, units):
 def main():
     rdr = tf.train.load_checkpoint(f"{SRC}/variables/variables")
     g = lambda n: rdr.get_tensor(n).astype(np.float32)
-    model, L = build_model()
-    model([np.zeros((1, 30), np.int32), np.zeros((1, 1), np.float32), np.zeros((1, 6), np.float32)])
+    shapes = rdr.get_variable_to_shape_map()
+    # the decoder-attention Dense is named dense_1/dense_19/... per export; find it by its [29,29] kernel
+    dec_att = next(n.rsplit("/", 1)[0] for n, s in shapes.items()
+                   if n.endswith("/kernel") and s == [29, 29])
+
+    model, L = build_model(vocab=VOCAB, with_frag=WITH_FRAG)
+    dummy = [np.zeros((1, 30), np.int32), np.zeros((1, 1), np.float32), np.zeros((1, 6), np.float32)]
+    if WITH_FRAG:
+        dummy.append(np.zeros((1, 1), np.float32))
+    model(dummy)
 
     L["emb"].set_weights([g("embedding/embeddings")])
     L["se"].layers[0].forward_layer.set_weights(gru_weights(rdr, "encoder1/forward_encoder1_gru", 256))
@@ -114,15 +129,22 @@ def main():
     L["att"].set_weights([g("encoder_att/encoder_att_W"), g("encoder_att/encoder_att_b")])
     L["me"].layers[1].set_weights([g("meta_dense/kernel"), g("meta_dense/bias")])
     L["dec"].layers[0].set_weights(gru_weights(rdr, "decoder", 512))
-    L["dec"].layers[2].dense.set_weights([g("dense_1/kernel"), g("dense_1/bias")])
+    L["dec"].layers[2].dense.set_weights([g(f"{dec_att}/kernel"), g(f"{dec_att}/bias")])
     L["reg"].layers[0].set_weights([g("timedense/kernel"), g("timedense/bias")])
 
-    @tf.function(input_signature=[
-        tf.TensorSpec((None, 30), tf.int32, name="peptides_in"),
-        tf.TensorSpec((None, 1), tf.float32, name="collision_energy_in"),
-        tf.TensorSpec((None, 6), tf.float32, name="precursor_charge_in")])
-    def serve(peptides_in, collision_energy_in, precursor_charge_in):
-        return {"out/Reshape:0": model([peptides_in, collision_energy_in, precursor_charge_in], training=False)}
+    specs = [tf.TensorSpec((None, 30), tf.int32, name="peptides_in"),
+             tf.TensorSpec((None, 1), tf.float32, name="collision_energy_in"),
+             tf.TensorSpec((None, 6), tf.float32, name="precursor_charge_in")]
+    if WITH_FRAG:
+        specs.append(tf.TensorSpec((None, 1), tf.float32, name="fragmentation_type_in"))
+
+        @tf.function(input_signature=specs)
+        def serve(peptides_in, collision_energy_in, precursor_charge_in, fragmentation_type_in):
+            return {"out/Reshape:0": model([peptides_in, collision_energy_in, precursor_charge_in, fragmentation_type_in], training=False)}
+    else:
+        @tf.function(input_signature=specs)
+        def serve(peptides_in, collision_energy_in, precursor_charge_in):
+            return {"out/Reshape:0": model([peptides_in, collision_energy_in, precursor_charge_in], training=False)}
 
     tf.saved_model.save(model, OUT, signatures={"serving_default": serve})
 

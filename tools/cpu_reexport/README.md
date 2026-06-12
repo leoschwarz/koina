@@ -4,17 +4,22 @@ The Prosit **2019/2020** intensity & iRT cores are TF1 Keras graphs whose GRUs a
 GPU-only `CudnnRNN` op (no CPU kernel, no fallback subgraph), so they fail to load on a CPU host.
 All Prosit/Prosit-XL/pfly models from **2023 onward already run on CPU unmodified** (they carry a
 `standard_gru` CPU-fallback subgraph that Triton selects automatically) — only these 7 old cores
-need re-exporting:
+need re-exporting. **All 7 are re-exported and validated on CPU — numerically identical to the
+GPU server (cosine 1.0 / iRT Δ < 1e-4).**
 
-| Model | Zenodo record | Arch |
-|---|---|---|
-| **Prosit_2019_intensity** ✅ piloted | 7565518 | intensity |
-| Prosit_2020_intensity_CID | 7681435 | intensity |
-| Prosit_2020_intensity_HCD | 7681452 | intensity |
-| Prosit_2020_intensity_TMT | 7681498 | intensity |
-| Prosit_2019_irt | 7671314 | iRT |
-| Prosit_2019_irt_supplement | 7671350 | iRT |
-| Prosit_2020_irt_TMT | 7681553 | iRT |
+| Model | Zenodo | Arch | re-export args (after SRC OUT) | CPU vs GPU |
+|---|---|---|---|---|
+| Prosit_2019_intensity | 7565518 | intensity | *(defaults)* | cosine 1.000000 |
+| Prosit_2020_intensity_CID | 7681435 | intensity | *(defaults)* | cosine 1.000000 |
+| Prosit_2020_intensity_HCD | 7681452 | intensity | *(defaults)* | cosine 1.000000 |
+| Prosit_2020_intensity_TMT | 7681498 | intensity | `23 frag` | cosine 1.000000 |
+| Prosit_2019_irt | 7671314 | iRT | `22 32 sequence_integer` | Δ 6e-6 |
+| Prosit_2019_irt_supplement | 7671350 | iRT | `22 32 sequence_integer` | Δ 1.5e-5 |
+| Prosit_2020_irt_TMT | 7681553 | iRT | `23 16 peptides_in:0` | Δ 2.3e-5 |
+
+Intensity defaults = vocab 22 + 3 inputs; `23 frag` = vocab 23 + the extra `fragmentation_type_in:0`
+input (2020 TMT). The decoder-attention dense var (`dense_1`/`dense_19`/…) is auto-detected.
+Validate TMT models with TMT-labeled peptides (`[UNIMOD:737]`).
 
 ## The recipe (proven on Prosit_2019_intensity → cosine 1.000000 vs GPU)
 
@@ -56,13 +61,19 @@ docker run --rm -v "$PWD:/w" koina-convert \
 
 ## Status / scope
 
-- `reexport_prosit_intensity.py` is the **intensity** architecture (embedding → BiGRU → GRU →
-  attention → meta-fusion → decoder GRU → decoder-attention → TimeDistributed dense). It should
-  cover all 4 intensity cores; the 2020 CID/HCD/TMT variants must each be parity-checked (TMT/CID
-  differ only in training data / alphabet, not topology — verify).
-- The **iRT** cores use the simpler `PrositRetentionTimePredictor` topology (no decoder/meta
-  branch: embedding → BiGRU → GRU → attention → Dense(relu) → Dense(1)). Same weight-conversion
-  recipe; a sibling `reexport_prosit_irt.py` is the obvious next step (not yet written).
+All 7 done and CPU-validated. Two scripts cover them:
+- `reexport_prosit_intensity.py` — intensity architecture (embedding → BiGRU → GRU → attention →
+  meta-fusion → decoder GRU → decoder-attention → TimeDistributed dense). Covers all 4 intensity
+  cores; `23 frag` handles the 2020 TMT variant (vocab 23 + `fragmentation_type_in:0`, meta order
+  = collision_energy, precursor_charge, fragmentation_type per dlomix `META_DATA_KEYS`).
+- `reexport_prosit_irt.py` — `PrositRetentionTimePredictor` topology (embedding → BiGRU → GRU →
+  attention → Dense(relu) [pep_dense1] → Dense(1) [prediction]); parameterized by vocab, embedding
+  dim, and the ensemble's input name.
+
+Each rebuilt SavedModel was dropped into its `models/Prosit/<name>_core/1/` and validated
+end-to-end against the public GPU server (see table above). To reproduce: re-export, place the
+output as the core's `model.savedmodel` plus the original `.savedmodel.zip` as `zenodo.zip` (so
+koina skips re-download), run with `KOINA_FORCE_CPU=1`, and parity-check vs the public server.
 
 ## ⚠️ Hosting handoff (required, maintainer-only)
 A re-exported model can't be shipped by editing this repo — koina downloads weights from Zenodo at
