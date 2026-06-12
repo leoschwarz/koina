@@ -142,12 +142,19 @@ docker run \
     ghcr.io/wilhelm-lab/koina:latest
 ```
 
-**Not all models run on CPU.** Models that load cleanly on CPU include the PyTorch models
-(e.g. Chronologer, AlphaPept), the ms2pip (XGBoost) models, DeepLC / IM2Deep, and all
-pre/post-processing steps. The **Prosit** intensity and iRT models (including Prosit-XL and
-pfly) currently **require a GPU** — their TensorFlow graphs use the cuDNN-only `CudnnRNN`
-op, which has no CPU kernel. On a CPU host these models fail to load; the server stays
-healthy and continues serving the models that did load (it does not crash or restart-loop).
+**Most models run on CPU.** Confirmed working on CPU: the PyTorch models (e.g. Chronologer,
+AlphaPept), the ms2pip (XGBoost) models, DeepLC / IM2Deep, all pre/post-processing steps,
+and the **Prosit / Prosit-XL / pfly models from 2023 onward** (e.g. `Prosit_2023_intensity_timsTOF`,
+the 2024/2025 intensity & iRT PTM variants, `Prosit_2023_intensity_XL_*`). These newer
+TensorFlow models carry a CPU GRU fallback subgraph that Triton selects automatically on CPU
+(verified numerically identical to GPU output).
+
+The only models that currently **require a GPU** are the **older Prosit 2019 / 2020 models**
+(`Prosit_2019_intensity`, `Prosit_2019_irt`, `Prosit_2020_intensity_{CID,HCD,TMT}`,
+`Prosit_2020_irt_TMT`). Their TensorFlow graphs use the cuDNN-only `CudnnRNN` op (no CPU
+kernel and no fallback branch), so they fail to load on a CPU host. The server stays healthy
+and keeps serving every other model (it does not crash or restart-loop). Running these few on
+CPU would require re-exporting them upstream with a CPU-compatible GRU.
 
 If you want to stay up to date with the latest version of Koina we suggest you also deploy containrrr/watchtower.
 
