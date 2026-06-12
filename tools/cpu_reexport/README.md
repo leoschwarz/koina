@@ -79,3 +79,12 @@ koina skips re-download), run with `KOINA_FORCE_CPU=1`, and parity-check vs the 
 A re-exported model can't be shipped by editing this repo — koina downloads weights from Zenodo at
 startup and model files are gitignored. Publishing requires **uploading the new SavedModel to a new
 Zenodo record and bumping the core's `1/.zenodo` URL + MD5**. That is a maintainer action.
+
+**Licensing (re-hosting is permitted).** The source Zenodo records are all open and permit
+derivative works + redistribution: `Prosit_2019_intensity` (record 7565518) is **Apache-2.0**; the
+other six are **CC-BY-4.0**. They were published by the koina maintainer (L. Lautenbacher, TUM) —
+same institution as the upstream `kusterlab/prosit` (Apache-2.0). Conditions when re-hosting: keep
+**the same license per record** (Apache for 2019_intensity, CC-BY-4.0 for the rest), attribute
+Gessulat et al. 2019 + link the source DOI, and **mark the record as modified** ("re-exported with
+a CPU-compatible GRU"). No upstream `NOTICE` file exists, so nothing to propagate. (Not legal
+advice; the publish decision is the maintainers'.)
