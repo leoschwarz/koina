@@ -80,6 +80,12 @@ A re-exported model can't be shipped by editing this repo — koina downloads we
 startup and model files are gitignored. Publishing requires **uploading the new SavedModel to a new
 Zenodo record and bumping the core's `1/.zenodo` URL + MD5**. That is a maintainer action.
 
+**Current branch state (pre-PR testing).** The 7 cores' `1/.zenodo` files now point at a temporary
+FGCZ test host (`https://fgcz-ms.uzh.ch/public/koina/20260612_cpu_build/`) serving the re-exported
+CPU SavedModels, so the branch is testable end-to-end on CPU as-is. For the upstream PR a maintainer
+re-hosts the same zips on Zenodo and swaps each `.zenodo` URL — **the md5 stays identical** (same
+zip), so it's a one-line-per-model change.
+
 **Licensing (re-hosting is permitted).** The source Zenodo records are all open and permit
 derivative works + redistribution: `Prosit_2019_intensity` (record 7565518) is **Apache-2.0**; the
 other six are **CC-BY-4.0**. They were published by the koina maintainer (L. Lautenbacher, TUM) —
